@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 """
-AI Passport 语音对话网关 —— ASR(sherpa-onnx) → LLM(llama-server qwen3vl) → TTS(edge-tts)
-启动：python gateway.py   （监听 0.0.0.0:8000）
-端点：/api/chat（PC base64）、/api/chat_wav（整包）、/api/chat_stream（真机对讲机式）、/api/health
+AI Passport 语音对话网关 v1 —— ASR(sherpa-onnx) → LLM(llama-server qwen3vl) → TTS(edge-tts)
+启动：python gateway.py  （监听 127.0.0.1:8000，PC 冒烟阶段）
+ESP32 接入时：改 --host 0.0.0.0 + 防火墙放行 + 加 token
 """
 import base64
 import io
@@ -29,18 +29,18 @@ MODEL_DIR = os.environ.get(
     "ASR_MODEL_DIR",
     os.path.join(_BASE, "models", "sherpa-onnx-paraformer-zh-2023-09-14"),
 )
-LLM_URL = os.environ.get("LLM_URL", "http://127.0.0.1:8080/v1/chat/completions")
-LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3vl")
+# 远程商用 LLM（P0：本地 Qwen3-VL → DeepSeek API；环境变量可覆盖回本地/其他）
+LLM_URL = os.environ.get("LLM_URL", "https://api.deepseek.com/v1/chat/completions")
+LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
+LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 LLM_TIMEOUT = 60
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 TTS_VOICE = "zh-CN-YunxiNeural"
 TTS_RATE = "+30%"
 
 SYSTEM_PROMPT = (
-    "你是戴在程序员胸前的 AI Passport（一块 50 克的电子工牌）。"
-    "人设：老板的 AI 分身，语气简短、俏皮、带点赛博感，每次回答不超过 40 个字。"
-    "你运行在主人电脑的本地大模型上（Qwen3-VL-8B，完全离线、隐私安全）。"
-    "如果被问到漫剧，提到《三个笨贼闯珠宝店》和 ReelForge。"
+    "你是戴在于经理胸前的 AI 工牌助理，称呼用户为“于经理”。"
+    "回答简短、直接、口语化，不超过 40 个字。"
 )
 
 # 多轮会话历史（内存版，单用户冒烟够用；ESP32 阶段按 session_id 分桶）
@@ -120,10 +120,13 @@ def is_weather_question(text: str) -> bool:
 
 def llm_chat(messages) -> str:
     body = json.dumps({"model": LLM_MODEL, "messages": messages, "max_tokens": 100, "temperature": 0.8}, ensure_ascii=False).encode("utf-8")
+    headers = {"Content-Type": "application/json"}
+    if LLM_API_KEY:
+        headers["Authorization"] = "Bearer " + LLM_API_KEY
     req = urllib.request.Request(
         LLM_URL,
         data=body,
-        headers={"Content-Type": "application/json"},
+        headers=headers,
     )
     with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
         data = json.loads(r.read().decode("utf-8"))
@@ -175,12 +178,7 @@ class ChatResp(BaseModel):
 
 @app.get("/api/health")
 async def health():
-    try:
-        urllib.request.urlopen("http://127.0.0.1:8080/health", timeout=3)
-        llm_ok = True
-    except Exception:
-        llm_ok = False
-    return {"status": "ok", "llm": llm_ok, "asr": True, "tts": True}
+    return {"status": "ok", "llm": bool(LLM_API_KEY), "llm_provider": "deepseek" if LLM_API_KEY else "local", "asr": True, "tts": True}
 
 
 # ---------- 统一对话流水线 ----------
