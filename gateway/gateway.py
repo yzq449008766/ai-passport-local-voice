@@ -29,10 +29,10 @@ MODEL_DIR = os.environ.get(
     "ASR_MODEL_DIR",
     os.path.join(_BASE, "models", "sherpa-onnx-paraformer-zh-2023-09-14"),
 )
-# 远程商用 LLM（P0：本地 Qwen3-VL → DeepSeek API；环境变量可覆盖回本地/其他）
-LLM_URL = os.environ.get("LLM_URL", "https://api.deepseek.com/v1/chat/completions")
-LLM_MODEL = os.environ.get("LLM_MODEL", "deepseek-v4-flash")
-LLM_API_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+# 远程商用 LLM（本地 Qwen3-VL → 千问 DashScope API；环境变量可覆盖）
+LLM_URL = os.environ.get("LLM_URL", "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions")
+LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.8-flash")
+LLM_API_KEY = os.environ.get("QWEN_API_KEY", "")
 LLM_TIMEOUT = 60
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 TTS_VOICE = "zh-CN-YunxiNeural"
@@ -178,7 +178,7 @@ class ChatResp(BaseModel):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "llm": bool(LLM_API_KEY), "llm_provider": "deepseek" if LLM_API_KEY else "local", "asr": True, "tts": True}
+    return {"status": "ok", "llm": bool(LLM_API_KEY), "llm_provider": "qwen-dashscope" if LLM_API_KEY else "local", "asr": True, "tts": True}
 
 
 # ---------- 统一对话流水线 ----------
