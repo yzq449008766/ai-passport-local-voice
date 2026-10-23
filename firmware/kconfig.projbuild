@@ -1,0 +1,47 @@
+# AI Passport 本地语音对话应用配置
+# 冒烟版：WiFi 与网关地址编译时配置；后续可扩展 NVS 覆盖。
+
+menu "AI Passport Local Voice Chat"
+
+config AIPASSPORT_WIFI_SSID
+    string "Wi-Fi SSID (2.4GHz)"
+    default "YOUR_WIFI_SSID"
+    help
+        设备要连接的 2.4GHz 无线网络名称（ESP32-C3 仅支持 2.4G）。
+
+config AIPASSPORT_WIFI_PASSWORD
+    string "Wi-Fi password"
+    default "YOUR_WIFI_PASSWORD"
+    help
+        无线网络密码。开放网络留空。
+
+config AIPASSPORT_WIFI_MAX_RETRY
+    int "Wi-Fi max connect retries"
+    default 10
+    help
+        连接失败后的最大重试次数，超过后进入 ERROR 状态并在屏幕提示。
+
+config AIPASSPORT_GATEWAY_HOST
+    string "Local gateway host"
+    default "192.168.1.100"
+    help
+        运行语音网关的电脑局域网 IP（本机 ipconfig 查得）。
+        网关必须监听 0.0.0.0:8000 且防火墙放行。
+
+config AIPASSPORT_GATEWAY_PORT
+    int "Local gateway port"
+    default 8000
+
+config AIPASSPORT_RECORD_MAX_MS
+    int "Max record duration (ms) - streaming upload, anti-stuck cap only"
+    default 15000
+    help
+        按住说话的最长录音时长；超过自动停止并上传。
+
+config AIPASSPORT_RECORD_MIN_MS
+    int "Min record duration (ms)"
+    default 400
+    help
+        短于此时间视为误触，丢弃不上传。
+
+endmenu
