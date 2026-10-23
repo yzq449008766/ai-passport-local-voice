@@ -35,7 +35,7 @@ LLM_MODEL = os.environ.get("LLM_MODEL", "qwen3.8-flash")
 LLM_API_KEY = os.environ.get("QWEN_API_KEY", "")
 LLM_TIMEOUT = 60
 FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
-TTS_VOICE = "zh-CN-YunxiNeural"
+TTS_VOICE = "zh-CN-XiaoxiaoNeural"   # 晓晓：免费中文温柔女声（edge-tts）
 TTS_RATE = "+30%"
 
 SYSTEM_PROMPT = (
