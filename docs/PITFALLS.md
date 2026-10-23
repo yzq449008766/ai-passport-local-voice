@@ -74,3 +74,20 @@
 ## 9. 天气问答"答非所问"
 
 本地模型无实时数据，问天气会瞎编。修复：网关关键词检测 + 免费源（wttr.in，无 key）注入实时数据 → LLM 俏皮播报（"冷得像老板的咖啡…"）。
+
+## 10. 后台任务不继承新设的用户级环境变量
+
+**症状**：`[Environment]::SetEnvironmentVariable('QWEN_API_KEY',...,'User')` 后重启网关，`/api/health` 仍显示 `llm:false`、冒烟 500。
+
+**根因**：后台任务进程的环境在创建时已快照，新设的用户级变量不会自动进入已运行/同会话派生的进程。
+
+**修复**：启动命令里显式注入：
+```powershell
+$env:QWEN_API_KEY=[Environment]::GetEnvironmentVariable('QWEN_API_KEY','User'); python gateway.py
+```
+
+## 11. 备忘录 [TODO] 分支不能走通用截断
+
+**症状**：`llm_chat` 里 `REPLY_MAX_CHARS=24` 截断会把 LLM 输出的 `[TODO]明天上午十点给王总回电话` 截成半截。
+
+**修复**：`llm_chat` 对 `[TODO]` 开头直接返回不截断；待办内容由 `memo_sink` 落点后，播报文本再用 `short_text` 单独截断（避免长内容撑爆语音缓冲）。

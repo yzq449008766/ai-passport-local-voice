@@ -1,11 +1,12 @@
-# AI Passport · 本地语音对话（对讲机式）
+# AI Passport · 语音对讲机（本地 + 远程双模式）
 
-> 把 **FoloToy AI Passport**（ESP32-C3，无 PSRAM）改造成一台**完全离线、本地推理**的语音对讲机：
-> 按住 OK 说话 → 设备经 WiFi **边录边传**到本机网关 →（sherpa-onnx ASR → 本地 Qwen3-VL → edge-tts TTS）→ 设备**边下边播** + 屏幕实时显示状态与文本。
+> 把 **FoloToy AI Passport**（ESP32-C3，无 PSRAM）改造成一台**语音对讲机**：
+> 按住 OK 说话 → 设备经 WiFi **边录边传**到网关 →（sherpa-onnx ASR → **远程千问 qwen3.8-flash** → edge-tts 晓晓女声 TTS）→ 设备**边下边播** + 屏幕实时显示状态与文本。
+> 说"记一下/提醒我…"还能**语音转备忘录**（Todoist / 企微 / 本地待办）。
 
 ![链路](docs/ARCHITECTURE.md)
 
-一句话：**一碰就开口、完全离线、本地跑**。问天气还会真报天气（网关自动注入实时数据）。
+一句话：**一碰就开口，脑子是千问，声音是晓晓，随口记待办**。问天气还会真报天气（网关自动注入实时数据）。
 
 ---
 
@@ -22,8 +23,8 @@
 | 项目 | 说明 |
 |---|---|
 | 设备 | FoloToy AI Passport（官方开源，MIT）：ESP32-C3 QFN32 · 8MB Flash · **无 PSRAM** · 240×320 TFT · 原生 USB-Serial/JTAG |
-| 电脑 | 本机网关运行处，需 2.4GHz WiFi 局域网可达 |
-| 本地 LLM | llama-server 跑 Qwen3-VL-8B（Q4），OpenAI 兼容 `/v1/chat/completions` |
+| 电脑 | 本机网关运行处，需 2.4GHz WiFi 局域网可达；P1 起可迁 VPS（见 docs/HOTSPOT_GUIDE.md） |
+| 远程 LLM | 默认千问 DashScope `qwen3.8-flash`（`QWEN_API_KEY` 环境变量），可切 DeepSeek/本地 |
 
 ## 仓库结构
 
@@ -45,9 +46,22 @@
 cd gateway
 pip install -r requirements.txt
 # 模型：sherpa-onnx paraformer 中文 int8（232MB），见 gateway/README.md
+# LLM：把千问 key 放进环境变量（Windows 用户级，勿落盘/入库）
+#   [Environment]::SetEnvironmentVariable('QWEN_API_KEY','sk-...','User')
+#   启动时显式注入：$env:QWEN_API_KEY=[Environment]::GetEnvironmentVariable('QWEN_API_KEY','User')
 python gateway.py          # 监听 0.0.0.0:8000
 ```
-自检：`Invoke-RestMethod http://127.0.0.1:8000/api/health`（三层全绿）。
+自检：`Invoke-RestMethod http://127.0.0.1:8000/api/health`（`llm_provider=qwen-dashscope`、`memo` 通道绿）。
+
+### 1b. 语音转备忘录（可选）
+不配任何凭据也能用：说"记一下 XXX"→ 写入网关本地 `todos/<日期>.md` 并播报确认。
+想让待办进手机/企业微信，设一个环境变量即可（自动优先 Todoist → 企微 → 本地）：
+```powershell
+# Todoist（设置页拿个人 token，POST /rest/v2/tasks）
+[Environment]::SetEnvironmentVariable('TODOIST_TOKEN','...','User')
+# 或 企业微信群机器人 webhook
+[Environment]::SetEnvironmentVariable('WECOM_WEBHOOK_URL','https://qyapi.weixin.qq.com/...','User')
+```
 
 ### 2. 部署固件（设备侧）
 1. 把 `firmware/` 下文件复制到 `ai-passport/main/` 覆盖（保留 demo 无妨，app_main 已切到语音应用）。
@@ -65,6 +79,7 @@ python -m esptool --chip esp32c3 -p COM5 -b 460800 write_flash \
 
 ### 3. 玩
 - 问天气：「今天天气咋样？」→ 播报大连实时天气（改 `gateway.py` 的 `WEATHER_URL` 换城市）。
+- 转备忘录：「记一下明天上午十点给王总回电话」→ 播报"已记下…"，待办已写入（Todoist/企微/本地）。
 - 长句子：「按住 OK 讲一段完整的话，松手发送」。
 - 打断：播放时短按 OK。
 
@@ -74,7 +89,10 @@ python -m esptool --chip esp32c3 -p COM5 -b 460800 write_flash \
 |---|---|---|
 | WiFi / 网关地址 / 录音上限 | `firmware/kconfig.projbuild` | 编译时配置 |
 | 网关地址 | 同上 `AIPASSPORT_GATEWAY_HOST` | 电脑局域网 IP（勿用虚拟网卡地址） |
+| LLM 提供方 | 环境变量 `LLM_URL`/`LLM_MODEL`/`QWEN_API_KEY` | 默认千问 DashScope `qwen3.8-flash` |
+| 备忘录落点 | 环境变量 `TODOIST_TOKEN` / `WECOM_WEBHOOK_URL` | 不配则写本地 `todos/` |
 | 回复长度 / 人设 / 天气城市 | `gateway/gateway.py` | `REPLY_MAX_CHARS`、`SYSTEM_PROMPT`、`WEATHER_URL` |
+| TTS 音色 | `gateway/gateway.py` `TTS_VOICE` | 默认晓晓女声，可换其他 edge-tts 音色 |
 
 ## 已知边界
 

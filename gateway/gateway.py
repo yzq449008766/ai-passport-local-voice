@@ -38,9 +38,16 @@ FFMPEG = os.environ.get("FFMPEG", "ffmpeg")
 TTS_VOICE = "zh-CN-XiaoxiaoNeural"   # 晓晓：免费中文温柔女声（edge-tts）
 TTS_RATE = "+30%"
 
+# 备忘录落点（语音转待办）：任一凭据存在即启用，否则本地文件兜底
+TODOIST_TOKEN = os.environ.get("TODOIST_TOKEN", "")
+WECOM_WEBHOOK_URL = os.environ.get("WECOM_WEBHOOK_URL", "")
+TODO_DIR = os.path.join(_BASE, "todos")
+
 SYSTEM_PROMPT = (
     "你是戴在于经理胸前的 AI 工牌助理，称呼用户为“于经理”。"
     "回答简短、直接、口语化，不超过 40 个字。"
+    "如果用户要求记下事情、设置提醒、转入待办或备忘录，只输出一行："
+    "[TODO]事情内容（不要其他任何字）。"
 )
 
 # 多轮会话历史（内存版，单用户冒烟够用；ESP32 阶段按 session_id 分桶）
@@ -131,10 +138,64 @@ def llm_chat(messages) -> str:
     with urllib.request.urlopen(req, timeout=LLM_TIMEOUT) as r:
         data = json.loads(r.read().decode("utf-8"))
     reply = data["choices"][0]["message"]["content"].strip()
+    # 备忘录意图行不截断（TODO 分支由 process_voice 处理）
+    if reply.startswith("[TODO]"):
+        return reply
     # 人设要求 ≤40 字；超长时按字符边界截断（Python str 切片安全，不会劈开 UTF-8）
     if len(reply) > REPLY_MAX_CHARS:
         reply = reply[:REPLY_MAX_CHARS] + "…"
     return reply
+
+
+def short_text(s: str, n: int = 24) -> str:
+    """播报用截断（避免长待办内容撑爆语音缓冲）"""
+    return s if len(s) <= n else s[:n] + "…"
+
+
+def memo_sink(content: str) -> str:
+    """写入备忘录落点：Todoist → 企微 webhook → 本地文件。返回播报文本。"""
+    if not content:
+        return "没听清要记什么，再说一次吧。"
+    if TODOIST_TOKEN:
+        try:
+            body = json.dumps({"content": content}, ensure_ascii=False).encode("utf-8")
+            req = urllib.request.Request(
+                "https://api.todoist.com/rest/v2/tasks",
+                data=body,
+                headers={"Content-Type": "application/json", "Authorization": "Bearer " + TODOIST_TOKEN},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                if r.status in (200, 201, 204):
+                    return f"已记下：{short_text(content)}"
+        except Exception as e:
+            print(f"[memo] todoist failed: {e}")
+    if WECOM_WEBHOOK_URL:
+        try:
+            body = json.dumps(
+                {"msgtype": "text", "text": {"content": "[AI工牌备忘录] " + content}},
+                ensure_ascii=False,
+            ).encode("utf-8")
+            req = urllib.request.Request(
+                WECOM_WEBHOOK_URL,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as r:
+                if r.status == 200:
+                    return f"已记下：{short_text(content)}"
+        except Exception as e:
+            print(f"[memo] wecom failed: {e}")
+    try:
+        os.makedirs(TODO_DIR, exist_ok=True)
+        path = os.path.join(TODO_DIR, time.strftime("%Y-%m-%d") + ".md")
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(f"- [{time.strftime('%H:%M')}] {content}\n")
+        return f"已记下：{short_text(content)}"
+    except Exception as e:
+        print(f"[memo] local failed: {e}")
+        return "记备忘录失败了。"
 
 
 # ---------- TTS ----------
@@ -178,7 +239,8 @@ class ChatResp(BaseModel):
 
 @app.get("/api/health")
 async def health():
-    return {"status": "ok", "llm": bool(LLM_API_KEY), "llm_provider": "qwen-dashscope" if LLM_API_KEY else "local", "asr": True, "tts": True}
+    memo_channel = "todoist" if TODOIST_TOKEN else ("wecom" if WECOM_WEBHOOK_URL else "local-file")
+    return {"status": "ok", "llm": bool(LLM_API_KEY), "llm_provider": "qwen-dashscope" if LLM_API_KEY else "local", "asr": True, "tts": True, "memo": memo_channel}
 
 
 # ---------- 统一对话流水线 ----------
@@ -192,6 +254,9 @@ async def process_voice(text: str) -> tuple[str, bytes]:
             msgs = msgs + [{"role": "system",
                             "content": f"[实时数据] {w} —— 据此播报天气，一句话不超过 24 个字，俏皮自然。"}]
     reply = llm_chat(msgs)
+    # 备忘录意图：LLM 输出 [TODO]内容 → 落点写入 + 播报确认
+    if reply.startswith("[TODO]"):
+        reply = memo_sink(reply[len("[TODO]"):].strip())
     HISTORY.append({"role": "assistant", "content": reply})
     audio = await tts_wav(reply, sample_rate=16000)
     return reply, audio
