@@ -1,0 +1,5 @@
+fastapi
+uvicorn
+sherpa-onnx
+edge-tts
+numpy

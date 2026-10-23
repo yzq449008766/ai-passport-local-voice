@@ -1,0 +1,7 @@
+# 大型产物 / 本地配置不入库
+firmware/fonts/lv_font_custom_16.c   # 17MB 生成源，按 fonts/README.md 本地生成
+*.bin
+build/
+**/__pycache__/
+*.pyc
+gateway/models/
